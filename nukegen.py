@@ -22,8 +22,8 @@ PROP_RE = re.compile(
 # generated MakeMethod line fails to COMPILE (detail::FromRV has no such specialization).
 FUNC_RE = re.compile(
     r'\[\[\s*nuke::func\s*\]\][ \t]*'
-    r'(?:virtual[ \t]+)?'
-    r'(?P<ret>[A-Za-z_][\w:&<>, \t]*?)[ \t]+'
+    r'(?:virtual[ \t]+|static[ \t]+)?'   # static -> MakeMethod's free-function overload (isStatic)
+    r'(?P<ret>[A-Za-z_][\w:&<>, \t\*]*?)[ \t]+'
     r'(?P<mname>[A-Za-z_]\w*)[ \t]*\(')
 ASSET_RE = re.compile(r'asset\s*=\s*"([^"]*)"')
 LABEL_RE = re.compile(r'label\s*=\s*"([^"]*)"')
