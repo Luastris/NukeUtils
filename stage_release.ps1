@@ -3,7 +3,7 @@
 # excluding dev artifacts (pdb/lib/exp/ilk/obj/pch) and the Intermediate scratch dir.
 # PDBs stay in the build folder (x64\<Config>) as symbols; they are not shipped.
 #
-#   powershell -File tools\stage_release.ps1 -Config Release
+#   powershell -File NukeUtils\stage_release.ps1 -Config Release
 param([string]$Config = "Release")
 $ErrorActionPreference = "Stop"
 
