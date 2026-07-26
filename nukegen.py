@@ -36,7 +36,7 @@ def parse_args(argv):
     cfg["out"]     = cfg["out"] if os.path.isabs(cfg["out"]) else os.path.join(_ROOT, cfg["out"])
     return cfg
 
-CLASS_RE = re.compile(r'\bNUKE_CLASS(_NOCREATE)?\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_][\w:]*)\s*\)')
+CLASS_RE = re.compile(r'\bNUKE_CLASS(_NOCREATE)?\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_][\w:]*)\s*(?:,\s*"([^"]*)"\s*)?\)')
 # [[nuke::prop ...]] <type> <name> (= ... | ; | {)
 # The attribute body (group "attr") may carry hints, e.g. [[nuke::prop(asset="mesh")]].
 PROP_RE = re.compile(
@@ -94,22 +94,22 @@ def main():
         for path in walk_files:
             text = open(path, "r", encoding="utf-8", errors="ignore").read()
             text = re.sub(r'(?m)^\s*#define.*(?:\\\r?\n.*)*$', '', text)  # drop #define blocks
-            classes = [(m.start(), m.group(2), m.group(3), m.group(1) is None)
+            classes = [(m.start(), m.group(2), m.group(3), m.group(1) is None, m.group(4) or "")
                        for m in CLASS_RE.finditer(text)]
             if not classes:
                 continue
             inc = rel_include(path, roots)
-            for _, cls, base, create in classes:
+            for _, cls, base, create, cat in classes:
                 if cls in seen_types:
                     continue
                 seen_types.add(cls)
-                types.append((cls, base, create, inc))
+                types.append((cls, base, create, inc, cat))
                 fields.setdefault(cls, [])
                 methods.setdefault(cls, [])
             # assign each [[nuke::prop]] field to the nearest preceding NUKE_CLASS
             for m in PROP_RE.finditer(text):
                 owner = None
-                for pos, cls, base, create in classes:
+                for pos, cls, base, create, _cat in classes:
                     if pos < m.start():
                         owner = cls
                     else:
@@ -134,7 +134,7 @@ def main():
             # assign each [[nuke::func]] method to the nearest preceding NUKE_CLASS
             for m in FUNC_RE.finditer(text):
                 owner = None
-                for pos, cls, base, create in classes:
+                for pos, cls, base, create, _cat in classes:
                     if pos < m.start():
                         owner = cls
                     else:
@@ -147,7 +147,7 @@ def main():
 
     # de-dupe includes, keep order
     incs, seen = [], set()
-    for _, _, _, inc in types:
+    for _, _, _, inc, _cat in types:
         if inc not in seen:
             seen.add(inc); incs.append(inc)
 
@@ -173,10 +173,12 @@ def main():
     lines.append("\tstatic bool _done = false;")
     lines.append("\tif (_done) return true;")
     lines.append("\t_done = true;")
-    for cls, base, create, inc in types:
+    for cls, base, create, inc, cat in types:
         lines.append("\t{")
         lines.append('\t\tTypeInfo& t = TypeOf<%s>();' % cls)
         lines.append('\t\tt.base = "%s";' % base)
+        if cat:
+            lines.append('		t.category = "%s";' % cat)
         for name, asset, label, fmin, fmax, enumc, hidden, tip, widget in fields.get(cls, []):
             if enumc:
                 mn = float(fmin) if fmin is not None else 0.0
