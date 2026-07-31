@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-# Mini-UHT: scans NUKE_CLASS / NUKE_CLASS_NOCREATE + [[nuke::prop]]/[[nuke::func]] and emits a
-# reflection-registration TU. Run as a pre-build step. When C++26 reflection lands this whole tool
-# is dropped (the attributes stay and are read natively).
+# Scans NUKE_CLASS / NUKE_CLASS_NOCREATE + [[nuke::prop]]/[[nuke::func]] and emits a
+# reflection-registration TU. Run as a pre-build step.
 #
-# Default (no args) = the ENGINE: scans NukeEngine/include, writes NukeEngine/src/reflect/Reflect.gen.cpp
-# with `bool NukeReflectInit()`.
-#
-# MODULE mode (a plugin adds its OWN reflected components without hand-writing MakeField):
+# No args = the engine: NukeEngine/include -> NukeEngine/src/reflect/Reflect.gen.cpp.
+# Module mode emits an .inc the module #includes in-TU and calls from OnLoad:
 #   nukegen.py --include NukeScript/src --out NukeScript/src/NukeScript.gen.inc \
 #              --init NukeReflectInit_NukeScript --scan-cpp --no-includes
-# The module #includes the generated .inc IN-TU (after its class definitions, so member pointers
-# resolve) and calls the init function from its NUKEModule::OnLoad — the type registers into the
-# SAME engine registry the core uses, so serialization / Add-Component / scripting all just work.
 import os, re, sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # eco root (NukeUtils/..)
@@ -37,16 +31,13 @@ def parse_args(argv):
     return cfg
 
 CLASS_RE = re.compile(r'\bNUKE_CLASS(_NOCREATE)?\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_][\w:]*)\s*(?:,\s*"([^"]*)"\s*)?\)')
-# [[nuke::prop ...]] <type> <name> (= ... | ; | {)
-# The attribute body (group "attr") may carry hints, e.g. [[nuke::prop(asset="mesh")]].
+# [[nuke::prop(<attr>)]] <type> <name> (= ... | ; | {)
 PROP_RE = re.compile(
     r'\[\[\s*nuke::prop(?P<attr>[^\]]*)\]\][ \t]*'
     r'(?P<type>[A-Za-z_][\w:\*&<>, \t]*?)[ \t]+'   # type (single line; trimmed later)
     r'(?P<fname>[A-Za-z_]\w*)[ \t]*(?:=|;|\{)')
-# [[nuke::func]] <ret> <name>( — a reflected METHOD (emitted as MakeMethod, which deduces
-# the FT signature from the member-function pointer). Overloads are NOT supported (a plain
-# member pointer would be ambiguous); param/return types must be FT-supported or the
-# generated MakeMethod line fails to COMPILE (detail::FromRV has no such specialization).
+# [[nuke::func]] <ret> <name>( — no overloads (a member pointer would be ambiguous); param and
+# return types must be FT-supported or the generated MakeMethod line fails to compile.
 FUNC_RE = re.compile(
     r'\[\[\s*nuke::func\s*\]\][ \t]*'
     r'(?:virtual[ \t]+|static[ \t]+)?'   # static -> MakeMethod's free-function overload (isStatic)
