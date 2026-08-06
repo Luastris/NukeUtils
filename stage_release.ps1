@@ -23,6 +23,9 @@ param(
     [string]$Config = "Release",
     [ValidateSet("Full", "Minimal")][string]$Mode = "Full",
     [switch]$Sdk,
+    # Output dir name under dist\ (default = the config name). Lets several variants of the
+    # SAME config coexist: dist\Release-Minimal, dist\Release-FullSdk, ...
+    [string]$OutName = "",
     # Module dlls kept in Minimal mode. The renderer is mandatory (the engine cannot
     # boot without a "render" service); everything else is an optional plugin.
     [string[]]$MinimalModules = @("NukeRenderDiligent.dll")
@@ -31,7 +34,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path $PSScriptRoot -Parent
 $src  = Join-Path $root "NukeEngine\x64\$Config"
-$dst  = Join-Path $root "dist\$Config"
+if ($OutName -eq "") { $OutName = $Config }
+$dst  = Join-Path $root "dist\$OutName"
 $devExt   = @('.pdb','.lib','.exp','.ilk','.iobj','.ipdb','.obj','.pch','.log','.tlog')
 $scratch  = 'Intermediate'
 
@@ -92,9 +96,15 @@ if ($Sdk) {
     if (Test-Path $sdkDir) { Remove-Item $sdkDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $sdkDir | Out-Null
 
-    # Headers (the whole public include tree — that IS the API surface).
+    # Headers (the whole public include tree — that IS the API surface). Copy-Item -Recurse
+    # reproduces EMPTY directories too (stale leftovers in the source tree, untracked by git),
+    # so prune them: an empty dir in a shipped SDK only raises questions.
     $incSrc = Join-Path $root "NukeEngine\include"
     Copy-Item $incSrc (Join-Path $sdkDir "include") -Recurse
+    Get-ChildItem (Join-Path $sdkDir "include") -Recurse -Directory |
+        Sort-Object { $_.FullName.Length } -Descending |
+        Where-Object { -not (Get-ChildItem $_.FullName -Force) } |
+        Remove-Item
 
     # Import libs, per config, for every config that has been built. NukeImGui's lands in the
     # superbuild tree (editor-tool modules link it), NukeEngine's next to the engine dll.
