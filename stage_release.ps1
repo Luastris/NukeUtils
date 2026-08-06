@@ -10,13 +10,19 @@
 #   Minimal           — bare boot set: exes + root runtime dlls + renderer module
 #                       + shaders/fonts/config/res. No optional modules, no managed,
 #                       no plugins/, no shader cache, no imgui.ini.
+#   -Sdk (orthogonal)  — additionally stage dist\<Config>\sdk\: the C++ game-module kit
+#                       (engine headers, import libs for BOTH configs when built, NukeGen.exe,
+#                       the vcpkg manifest). The game-module scaffold detects this layout
+#                       (include/, lib/<Config>/, bin/) through NUKE_ENGINE_ROOT.
 #
 #   powershell -File NukeUtils\stage_release.ps1 -Config Release
 #   powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal
+#   powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal -Sdk
 #   powershell -File NukeUtils\stage_release.ps1 -Mode Minimal -MinimalModules NukeRenderDiligent.dll,NukeScript.dll
 param(
     [string]$Config = "Release",
     [ValidateSet("Full", "Minimal")][string]$Mode = "Full",
+    [switch]$Sdk,
     # Module dlls kept in Minimal mode. The renderer is mandatory (the engine cannot
     # boot without a "render" service); everything else is an optional plugin.
     [string[]]$MinimalModules = @("NukeRenderDiligent.dll")
@@ -73,3 +79,69 @@ foreach ($f in Get-ChildItem $src -Recurse -File) {
 }
 "Staged $Config ($Mode) -> $dst"
 "  $files files, {0} MB ($skipped excluded)" -f [math]::Round($bytes/1MB,2)
+
+# ---- -Sdk: the C++ game-module kit ------------------------------------------------------
+# Everything a game module compiles and links against, laid out the way the scaffold's SDK
+# branch expects: include\ (engine public headers), lib\<Config>\NukeEngine.lib (+NukeImGui
+# for editor-tool modules; both configs when both are built), bin\NukeGen.exe, vcpkg.json.
+# Dependencies are NOT vendored: the manifest names the engine's public ones (boost,
+# nlohmann-json, glm) and vcpkg's manifest mode installs them at the consumer's first
+# configure.
+if ($Sdk) {
+    $sdkDir = Join-Path $dst "sdk"
+    if (Test-Path $sdkDir) { Remove-Item $sdkDir -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $sdkDir | Out-Null
+
+    # Headers (the whole public include tree — that IS the API surface).
+    $incSrc = Join-Path $root "NukeEngine\include"
+    Copy-Item $incSrc (Join-Path $sdkDir "include") -Recurse
+
+    # Import libs, per config, for every config that has been built. NukeImGui's lands in the
+    # superbuild tree (editor-tool modules link it), NukeEngine's next to the engine dll.
+    $libCandidates = @(
+        @{ Name = "NukeEngine.lib"; Dirs = @("NukeEngine\x64\{0}") },
+        @{ Name = "NukeImGui.lib";  Dirs = @("build\NukeImGui\{0}", "NukeEngine\x64\{0}") }
+    )
+    foreach ($cfg in @("Debug", "Release")) {
+        $any = $false
+        foreach ($lc in $libCandidates) {
+            foreach ($d in $lc.Dirs) {
+                $lp = Join-Path $root (($d -f $cfg))
+                $lp = Join-Path $lp $lc.Name
+                if (Test-Path $lp) {
+                    if (-not $any) { New-Item -ItemType Directory -Force -Path (Join-Path $sdkDir "lib\$cfg") | Out-Null; $any = $true }
+                    Copy-Item $lp (Join-Path $sdkDir "lib\$cfg\$($lc.Name)") -Force
+                    break
+                }
+            }
+        }
+        if (-not $any) { "  sdk: $cfg libs not built - lib\$cfg skipped" }
+    }
+
+    # The native reflection generator — the one tool a module build needs (no Python).
+    $gen = Join-Path $root "NukeUtils\bin\NukeGen.exe"
+    if (Test-Path $gen) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $sdkDir "bin") | Out-Null
+        Copy-Item $gen (Join-Path $sdkDir "bin\NukeGen.exe") -Force
+    } else { "  sdk: WARNING - NukeUtils\bin\NukeGen.exe not built; module reflection needs it" }
+
+    # The engine's public dependencies, for vcpkg manifest mode on the consumer's machine.
+    Set-Content -Path (Join-Path $sdkDir "vcpkg.json") -Encoding utf8 -Value @'
+{
+  "name": "nukeengine-game-module",
+  "version-string": "0.1",
+  "dependencies": [ "boost", "nlohmann-json", "glm" ]
+}
+'@
+
+    # Typed cross-module wrapper headers -> inside include\ so <nukesdk/X.sdk.h> resolves.
+    $wrap = Join-Path $root "NukeUtils\sdk\nukesdk"
+    if (Test-Path $wrap) { Copy-Item $wrap (Join-Path $sdkDir "include\nukesdk") -Recurse }
+
+    # Generated API docs, when the doc step has produced them (SDK-5).
+    $docs = Join-Path $root "NukeUtils\sdkdocs"
+    if (Test-Path $docs) { Copy-Item $docs (Join-Path $sdkDir "docs") -Recurse }
+
+    $sdkFiles = (Get-ChildItem $sdkDir -Recurse -File | Measure-Object).Count
+    "Staged SDK -> $sdkDir ($sdkFiles files)"
+}
