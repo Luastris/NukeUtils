@@ -15,10 +15,11 @@ if(MSVC)
 endif()
 
 # One stable, config-independent home: build scripts, module CMakeLists and the game-module
-# scaffold all reference NukeUtils/bin/NukeGen.exe. Debug and Release produce identical
-# behavior, so last-built wins harmlessly.
+# scaffold all reference NukeUtils/bin/NukeGen${NUKE_HOSTTOOL_SUFFIX} (".exe" on Windows,
+# bare elsewhere). Debug and Release produce identical behavior, so last-built wins.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../NukeEngine/cmake/NukeRunDir.cmake")
 add_custom_command(TARGET NukeGen POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/../bin"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:NukeGen>" "${CMAKE_CURRENT_SOURCE_DIR}/../bin/NukeGen.exe"
-    COMMENT "Deploying NukeGen.exe to NukeUtils/bin/")
+            "$<TARGET_FILE:NukeGen>" "${CMAKE_CURRENT_SOURCE_DIR}/../bin/NukeGen${NUKE_HOSTTOOL_SUFFIX}"
+    COMMENT "Deploying NukeGen to NukeUtils/bin/")
