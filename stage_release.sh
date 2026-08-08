@@ -23,7 +23,9 @@ CONFIG="Release"
 MODE="Full"
 SDK=0
 OUTNAME=""
-MINIMAL_MODULES="NukeRenderDiligent.dylib"
+# Native module extension: .dylib on macOS, .so elsewhere (matches the CMake PREFIX "" naming).
+case "$(uname -s)" in Darwin) MODEXT=dylib ;; *) MODEXT=so ;; esac
+MINIMAL_MODULES="NukeRenderDiligent.$MODEXT"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -101,6 +103,8 @@ echo "  $FILES files, $((BYTES / 1024)) MB"
 # Architecture report — say what got staged, never make anyone guess.
 if command -v lipo >/dev/null 2>&1 && [ -f "$DST/NukePlayer" ]; then
 	echo "  architectures: $(lipo -archs "$DST/NukePlayer" 2>/dev/null || echo unknown)"
+elif [ -f "$DST/NukePlayer" ] && command -v file >/dev/null 2>&1; then
+	echo "  architectures: $(file -b "$DST/NukePlayer" | sed -n 's/.*ELF 64-bit LSB [a-z ]*, \([^,]*\),.*/\1/p')"
 fi
 
 # ---- --sdk: the C++ game-module kit ------------------------------------------------------
