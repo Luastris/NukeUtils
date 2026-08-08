@@ -15,13 +15,20 @@
 #       libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols \
 #       libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev \
 #       libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
-#   Fedora:
+#   Fedora (classic):
 #     sudo dnf install gcc-c++ cmake ninja-build git curl zip unzip tar pkgconf-pkg-config \
 #       autoconf autoconf-archive automake libtool bison flex \
 #       libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
 #       libXext-devel libXfixes-devel libxkbcommon-devel wayland-devel wayland-protocols-devel \
 #       mesa-libGL-devel mesa-libEGL-devel vulkan-loader-devel \
 #       alsa-lib-devel pulseaudio-libs-devel systemd-devel dbus-devel
+#   Arch:
+#     sudo pacman -S --needed base-devel cmake ninja git curl zip unzip tar autoconf-archive \
+#       libx11 libxrandr libxinerama libxcursor libxi libxext libxfixes libxkbcommon \
+#       wayland wayland-protocols mesa vulkan-icd-loader vulkan-headers alsa-lib libpulse dbus
+#   Atomic Fedora (Bazzite/Silverblue/Kinoite): no dnf — build in a distrobox
+#   (ubuntu:22.04 + the Debian/Ubuntu list); distrobox-export --bin cmake/ninja for the
+#   editor's own File -> Build Engine.
 #   Optional: dotnet-sdk-8.0 (NukeCSharp), zenity or kdialog (native file dialogs),
 #   appimagetool on PATH (--appimage; the editor also ships its own copy in tools/).
 set -eu
