@@ -29,6 +29,7 @@ struct FieldInfo
 	std::string enumc, tip, widget;
 	std::string ctype;        // declared C++ type text (drives --sdk accessors and --doc)
 	bool hidden = false;
+	bool net    = false;      // [[nuke::prop(net)]] — replicated field (NukeNet auto-collects it)
 };
 struct TypeEntry
 {
@@ -162,6 +163,7 @@ int main(int argc, char** argv)
 	const std::regex kMax(R"rx(\bmax\s*=\s*(-?[\d.]+))rx");
 	const std::regex kEnum(R"rx(enum\s*=\s*"([^"]*)")rx");
 	const std::regex kHidden(R"rx(\bhidden\b)rx");
+	const std::regex kNet(R"rx(\bnet\b)rx");
 	const std::regex kTip(R"rx(tip\s*=\s*"([^"]*)")rx");
 	const std::regex kWidget(R"rx(widget\s*=\s*"([^"]*)")rx");
 
@@ -233,6 +235,7 @@ int main(int argc, char** argv)
 			if (std::regex_search(attr, am, kTip))    fi.tip    = am[1].str();
 			if (std::regex_search(attr, am, kWidget)) fi.widget = am[1].str();
 			fi.hidden = std::regex_search(attr, am, kHidden);
+			fi.net    = std::regex_search(attr, am, kNet);
 			owner->fields.push_back(std::move(fi));
 		}
 		for (std::sregex_iterator it(text.begin(), text.end(), kFunc), end; it != end; ++it)
@@ -321,6 +324,8 @@ int main(int argc, char** argv)
 				lines.push_back("\t\tt.fields.push_back(MakeField(\"" + fi.name + "\", " + amp + "));");
 			if (fi.hidden)
 				lines.push_back("\t\tt.fields.back().hidden = true;");
+			if (fi.net)
+				lines.push_back("\t\tt.fields.back().net = true;");
 			if (!fi.tip.empty())
 				lines.push_back("\t\tt.fields.back().tip = \"" + escape(fi.tip) + "\";");
 			if (!fi.widget.empty())
