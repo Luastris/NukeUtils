@@ -23,6 +23,9 @@ param(
     [string]$Config = "Release",
     [ValidateSet("Full", "Minimal")][string]$Mode = "Full",
     [switch]$Sdk,
+    # Stage matching PDBs into dist\<out>\symbols\ (NOT for players — archive next to the
+    # release so any config/crash/crash.dmp a user sends resolves against this build).
+    [switch]$Symbols,
     # Output dir name under dist\ (default = the config name). Lets several variants of the
     # SAME config coexist: dist\Release-Minimal, dist\Release-FullSdk, ...
     [string]$OutName = "",
@@ -154,4 +157,27 @@ if ($Sdk) {
 
     $sdkFiles = (Get-ChildItem $sdkDir -Recurse -File | Measure-Object).Count
     "Staged SDK -> $sdkDir ($sdkFiles files)"
+}
+
+# -Symbols: PDBs matching every staged exe/dll, pooled from the vcxproj output and the CMake
+# module build dirs. Third-party DLLs have no PDBs here and are skipped silently.
+if ($Symbols) {
+    $symDir = Join-Path $dst "symbols"
+    New-Item -ItemType Directory -Force -Path $symDir | Out-Null
+    $pdbPool = @{}
+    $poolDirs = @($src) + @(Get-ChildItem (Join-Path $root "build") -Recurse -Directory -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -eq $Config } | ForEach-Object { $_.FullName })
+    foreach ($d in $poolDirs) {
+        foreach ($p in Get-ChildItem $d -Filter *.pdb -File -ErrorAction SilentlyContinue) {
+            if (-not $pdbPool.ContainsKey($p.BaseName)) { $pdbPool[$p.BaseName] = $p.FullName }
+        }
+    }
+    $symCount = 0
+    foreach ($bin in Get-ChildItem $dst -Recurse -File | Where-Object { $_.Extension -eq '.exe' -or $_.Extension -eq '.dll' }) {
+        if ($pdbPool.ContainsKey($bin.BaseName)) {
+            Copy-Item $pdbPool[$bin.BaseName] (Join-Path $symDir ($bin.BaseName + ".pdb")) -Force
+            $symCount++
+        }
+    }
+    "symbols: $symCount PDBs -> $symDir"
 }
