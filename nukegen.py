@@ -31,15 +31,16 @@ def parse_args(argv):
     return cfg
 
 CLASS_RE = re.compile(r'\bNUKE_CLASS(_NOCREATE)?\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_][\w:]*)\s*(?:,\s*"([^"]*)"\s*)?\)')
-# [[nuke::prop(<attr>)]] <type> <name> (= ... | ; | {)
+# [[nuke::prop(<attr>)]] <type> <name> (= ... | ; | {) — \s* after ]]: the attribute may sit
+# on its own line above the declaration (legal C++; C++26 reflection sees it there too).
 PROP_RE = re.compile(
-    r'\[\[\s*nuke::prop(?P<attr>[^\]]*)\]\][ \t]*'
+    r'\[\[\s*nuke::prop(?P<attr>[^\]]*)\]\]\s*'
     r'(?P<type>[A-Za-z_][\w:\*&<>, \t]*?)[ \t]+'   # type (single line; trimmed later)
     r'(?P<fname>[A-Za-z_]\w*)[ \t]*(?:=|;|\{)')
 # [[nuke::func]] <ret> <name>( — no overloads (a member pointer would be ambiguous); param and
 # return types must be FT-supported or the generated MakeMethod line fails to compile.
 FUNC_RE = re.compile(
-    r'\[\[\s*nuke::func\s*\]\][ \t]*'
+    r'\[\[\s*nuke::func\s*\]\]\s*'
     r'(?:virtual[ \t]+|static[ \t]+)?'   # static -> MakeMethod's free-function overload (isStatic)
     r'(?P<ret>[A-Za-z_][\w:&<>, \t\*]*?)[ \t]+'
     r'(?P<mname>[A-Za-z_]\w*)[ \t]*\(')

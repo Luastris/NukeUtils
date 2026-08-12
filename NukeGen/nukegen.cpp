@@ -155,8 +155,10 @@ int main(int argc, char** argv)
 
 	// The reflection markers this engine's headers carry — kept IDENTICAL to nukegen.py.
 	const std::regex kClass(R"rx(\bNUKE_CLASS(_NOCREATE)?\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_][\w:]*)\s*(?:,\s*"([^"]*)"\s*)?\))rx");
-	const std::regex kProp(R"rx(\[\[\s*nuke::prop([^\]]*)\]\][ \t]*([A-Za-z_][\w:*&<>, \t]*?)[ \t]+([A-Za-z_]\w*)[ \t]*(?:=|;|\{))rx");
-	const std::regex kFunc(R"rx(\[\[\s*nuke::func\s*\]\][ \t]*(?:virtual[ \t]+|static[ \t]+)?([A-Za-z_][\w:&<>, \t*]*?)[ \t]+([A-Za-z_]\w*)[ \t]*\()rx");
+	// \s* after ]] — C++ attributes legally sit on their own line above the declaration
+	// (C++26 reflection sees them there too), so the scanner must as well.
+	const std::regex kProp(R"rx(\[\[\s*nuke::prop([^\]]*)\]\]\s*([A-Za-z_][\w:*&<>, \t]*?)[ \t]+([A-Za-z_]\w*)[ \t]*(?:=|;|\{))rx");
+	const std::regex kFunc(R"rx(\[\[\s*nuke::func\s*\]\]\s*(?:virtual[ \t]+|static[ \t]+)?([A-Za-z_][\w:&<>, \t*]*?)[ \t]+([A-Za-z_]\w*)[ \t]*\()rx");
 	const std::regex kAsset(R"rx(asset\s*=\s*"([^"]*)")rx");
 	const std::regex kLabel(R"rx(label\s*=\s*"([^"]*)")rx");
 	const std::regex kMin(R"rx(\bmin\s*=\s*(-?[\d.]+))rx");
