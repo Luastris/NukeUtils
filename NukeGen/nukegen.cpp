@@ -31,12 +31,18 @@ struct FieldInfo
 	bool hidden = false;
 	bool net    = false;      // [[nuke::prop(net)]] — replicated field (NukeNet auto-collects it)
 };
+struct MethodInfo
+{
+	std::string name;
+	std::string params;   // comma-joined parameter names ("atom,hitType,pos,normal,impulse")
+	std::string doc;      // the contiguous // comment block right above the declaration
+};
 struct TypeEntry
 {
 	std::string cls, base, inc, cat;
 	bool create = true;
 	std::vector<FieldInfo> fields;
-	std::vector<std::string> methods;
+	std::vector<MethodInfo> methods;
 };
 
 static std::string Lower(std::string s)
@@ -246,8 +252,72 @@ int main(int argc, char** argv)
 			TypeEntry* owner = ownerOf((size_t)m.position(0));
 			if (!owner) continue;
 			const std::string mname = m[2].str();
-			if (std::find(owner->methods.begin(), owner->methods.end(), mname) == owner->methods.end())
-				owner->methods.push_back(mname);
+			bool dup = false;
+			for (const MethodInfo& e : owner->methods) if (e.name == mname) { dup = true; break; }
+			if (dup) continue;
+			MethodInfo mi; mi.name = mname;
+			// Parameter NAMES: the match stops right after '(' — scan the balanced (...) and take
+			// the last identifier of each top-level comma piece (defaults stripped at '=').
+			{
+				size_t p = (size_t)m.position(0) + (size_t)m.length(0);
+				int depth = 1; std::string args;
+				while (p < text.size() && depth > 0)
+				{
+					const char c = text[p++];
+					if (c == '(') ++depth;
+					else if (c == ')') { if (--depth == 0) break; }
+					if (depth > 0) args += c;
+				}
+				int ad = 0; std::vector<std::string> parts; std::string cur;
+				for (char c : args)
+				{
+					if (c == '<' || c == '(') ++ad;
+					else if (c == '>' || c == ')') --ad;
+					if (c == ',' && ad == 0) { parts.push_back(cur); cur.clear(); }
+					else cur += c;
+				}
+				if (!cur.empty()) parts.push_back(cur);
+				for (std::string part : parts)
+				{
+					const size_t eq = part.find('=');
+					if (eq != std::string::npos) part = part.substr(0, eq);
+					size_t e = part.size();
+					while (e > 0 && isspace((unsigned char)part[e - 1])) --e;
+					size_t s = e;
+					while (s > 0 && (isalnum((unsigned char)part[s - 1]) || part[s - 1] == '_')) --s;
+					const std::string pname = part.substr(s, e - s);
+					if (pname.empty() || pname == "void") continue;
+					if (!mi.params.empty()) mi.params += ",";
+					mi.params += pname;
+				}
+			}
+			// Doc = the contiguous // comment block ending on the line above the attribute.
+			{
+				size_t ls = text.rfind('\n', (size_t)m.position(0));
+				std::vector<std::string> cl;
+				while (ls != std::string::npos && ls > 0)
+				{
+					const size_t prev = text.rfind('\n', ls - 1);
+					const size_t b0 = (prev == std::string::npos) ? 0 : prev + 1;
+					std::string line = text.substr(b0, ls - b0);
+					size_t b = 0;
+					while (b < line.size() && (line[b] == ' ' || line[b] == '\t')) ++b;
+					if (line.compare(b, 2, "//") != 0) break;
+					b += 2;
+					while (b < line.size() && line[b] == ' ') ++b;
+					size_t le = line.size();
+					while (le > b && (line[le - 1] == '\r' || line[le - 1] == ' ')) --le;
+					cl.push_back(line.substr(b, le - b));
+					if (prev == std::string::npos) break;
+					ls = prev;
+				}
+				for (size_t k = cl.size(); k-- > 0; )
+				{
+					if (!mi.doc.empty()) mi.doc += ' ';
+					mi.doc += cl[k];
+				}
+			}
+			owner->methods.push_back(std::move(mi));
 		}
 	}
 
@@ -333,8 +403,13 @@ int main(int argc, char** argv)
 			if (!fi.widget.empty())
 				lines.push_back("\t\tt.fields.back().widget = \"" + fi.widget + "\";");
 		}
-		for (const std::string& mname : t.methods)
-			lines.push_back("\t\tt.methods.push_back(MakeMethod(\"" + mname + "\", &" + t.cls + "::" + mname + "));");
+		for (const MethodInfo& mi : t.methods)
+		{
+			lines.push_back("\t\tt.methods.push_back(MakeMethod(\"" + mi.name + "\", &" + t.cls + "::" + mi.name + "));");
+			if (!mi.doc.empty() || !mi.params.empty())
+				lines.push_back("\t\tReflect_SetMethodDoc(\"" + t.cls + "\", \"" + mi.name + "\", \""
+				                + escape(mi.doc) + "\", \"" + mi.params + "\");");
+		}
 		if (t.create)
 			lines.push_back("\t\tt.create = []() -> void* { return new " + t.cls + "(); };");
 		lines.push_back("\t}");
@@ -531,10 +606,15 @@ int main(int argc, char** argv)
 			}
 			if (!t.methods.empty())
 			{
-				o += "\nMethods: ";
-				for (size_t k = 0; k < t.methods.size(); ++k)
-					o += (k ? ", `" : "`") + t.methods[k] + "`";
-				o += "\n";
+				o += "\nMethods:\n\n";
+				for (const MethodInfo& mi : t.methods)
+				{
+					std::string sig;
+					for (char c : mi.params) { sig += c; if (c == ',') sig += ' '; }
+					o += "- `" + mi.name + "(" + sig + ")`";
+					if (!mi.doc.empty()) o += " — " + mi.doc;
+					o += "\n";
+				}
 			}
 		}
 		if (writeIfChanged(docPath, o) > 0) std::cout << "nukegen: doc -> " << docPath.string() << "\n";
