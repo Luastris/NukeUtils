@@ -131,7 +131,7 @@ static std::string RegexStr(const std::smatch& m, int g) { return m[g].matched ?
 int main(int argc, char** argv)
 {
 	std::vector<std::string> includeArgs;
-	std::string outArg, init = "NukeReflectInit", rootArg, sdkArg, docArg;
+	std::string outArg, init = "NukeReflectInit", rootArg, sdkArg, docArg, moduleArg;
 	bool scanCpp = false, noIncludes = false;
 	for (int i = 1; i < argc; ++i)
 	{
@@ -147,9 +147,45 @@ int main(int argc, char** argv)
 		else if (a == "--root")        rootArg = next();
 		else if (a == "--sdk")         sdkArg = next();   // typed wrapper header for OTHER modules
 		else if (a == "--doc")         docArg = next();   // markdown API reference
+		else if (a == "--module")      moduleArg = next();   // convention mode: derive everything
 		else if (a == "--scan-cpp")    scanCpp = true;
 		else if (a == "--no-includes") noIncludes = true;
 		else { std::cerr << "nukegen: unknown arg '" << a << "'\n"; return 2; }
+	}
+
+	// --module <dir>: the GENERATOR owns the conventions — the build scripts only say WHOSE
+	// reflection to generate. Derived (repo = the module's parent unless --root says else):
+	//   scan     <dir>/include (headers), or <dir>/src with .cpp scanning when there is none
+	//   output   <dir>/src/<Name>.gen.inc  + init NukeReflectInit_<Name>  (engine: its
+	//            classic src/reflect/Reflect.gen.cpp + default init, with includes)
+	//   sdk      <repo>/NukeUtils/sdk/nukesdk/<Name>.sdk.h   (modules only)
+	//   doc      <repo>/docs/api/<Name>.md                   (the github.io site)
+	if (!moduleArg.empty())
+	{
+		const fs::path mdir = fs::absolute(fs::path(moduleArg)).lexically_normal();
+		const std::string name = mdir.filename().string();
+		const fs::path repo = rootArg.empty() ? mdir.parent_path() : fs::path(rootArg);
+		if (name == "NukeEngine")
+		{
+			includeArgs = { (mdir / "include").string() };
+			outArg = (mdir / "src" / "reflect" / "Reflect.gen.cpp").string();
+		}
+		else
+		{
+			if (fs::exists(mdir / "include"))
+				includeArgs = { (mdir / "include").string() };
+			else
+			{
+				includeArgs = { (mdir / "src").string() };
+				scanCpp = true;
+			}
+			outArg = (mdir / "src" / (name + ".gen.inc")).string();
+			init = "NukeReflectInit_" + name;
+			noIncludes = true;
+			sdkArg = (repo / "NukeUtils" / "sdk" / "nukesdk" / (name + ".sdk.h")).string();
+		}
+		docArg = (repo / "docs" / "api" / (name + ".md")).string();
+		rootArg = repo.string();
 	}
 	const fs::path root = rootArg.empty() ? fs::current_path() : fs::path(rootArg);
 	if (includeArgs.empty()) includeArgs.push_back((root / "NukeEngine" / "include").string());
