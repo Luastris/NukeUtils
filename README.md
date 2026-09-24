@@ -32,10 +32,14 @@ for one config into `dist/<Config>/`: exe / dll / `modules/` + data (`shaders`, 
 `fonts`), without dev artifacts, the `Intermediate` scratch dir or any game project (a
 top-level dir with a `.nuproj` is the user's data, never part of the engine). PDBs stay in
 the build folder. `-Mode Minimal` = the bare boot set; `-Sdk` additionally stages the C++
-game-module kit (`sdk/`).
+game-module kit (`sdk/`). `-Tech` picks the vendor upscaling / frame-generation runtimes
+(DLSS: NGX + Streamline DLSS-G, FSR: FidelityFX D3D12 + Vulkan, XeSS: XeSS + XeSS-FG): `All`,
+`None`, or a list such as `DLSS,FSR`; Full ships all of them, Minimal none, unless given. The
+renderer loads them by name and offers only what it finds.
 
 ```
 powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal -Sdk
+powershell -File NukeUtils\stage_release.ps1 -Config Release -Tech DLSS,FSR
 ```
 
 ## Platform scripts

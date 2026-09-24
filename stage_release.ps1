@@ -19,6 +19,10 @@
 #   powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal
 #   powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal -Sdk
 #   powershell -File NukeUtils\stage_release.ps1 -Mode Minimal -MinimalModules NukeRenderDiligent.dll,NukeScript.dll
+#   -Tech (orthogonal) — the vendor upscaling / frame-generation runtimes to ship: All, None, or
+#                       any of DLSS, FSR, XeSS. Full ships All, Minimal ships None unless given.
+#   powershell -File NukeUtils\stage_release.ps1 -Config Release -Tech DLSS,FSR
+#   powershell -File NukeUtils\stage_release.ps1 -Config Release -Mode Minimal -Tech All
 param(
     [string]$Config = "Release",
     [ValidateSet("Full", "Minimal")][string]$Mode = "Full",
@@ -31,7 +35,11 @@ param(
     [string]$OutName = "",
     # Module dlls kept in Minimal mode. The renderer is mandatory (the engine cannot
     # boot without a "render" service); everything else is an optional plugin.
-    [string[]]$MinimalModules = @("NukeRenderDiligent.dll")
+    [string[]]$MinimalModules = @("NukeRenderDiligent.dll"),
+    # Vendor upscaling / frame-generation runtimes to ship: "All", "None", or any of DLSS, FSR,
+    # XeSS (comma list, case-insensitive). Default: All in Full mode, None in Minimal. The
+    # renderer loads them by name and offers only what it finds - nothing else changes.
+    [string[]]$Tech = @()
 )
 $ErrorActionPreference = "Stop"
 
@@ -51,6 +59,30 @@ $projectDirs = @(Get-ChildItem $src -Directory | Where-Object {
 } | ForEach-Object { $_.Name })
 if ($projectDirs.Count) { "Excluding project dirs: $($projectDirs -join ', ')" }
 
+# Vendor runtimes by technology (the same set the editor's Package Project dialog toggles);
+# they live in the run root and/or modules\, and -Tech decides them wherever they are.
+$techFiles = @{
+    'DLSS' = @('nvngx_dlss.dll', 'sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll', 'NvLowLatencyVk.dll')
+    'FSR'  = @('amd_fidelityfx_upscaler_dx12.dll', 'amd_fidelityfx_framegeneration_dx12.dll', 'amd_fidelityfx_vk.dll')
+    'XeSS' = @('libxess.dll', 'libxess_fg.dll', 'libxell.dll')
+}
+if ($Tech.Count -eq 0) { $Tech = @($(if ($Mode -eq "Full") { "All" } else { "None" })) }
+$Tech = @($Tech | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$techOn = @{}
+foreach ($t in $Tech) {
+    $tl = $t.ToLower()
+    if ($tl -eq 'all')      { foreach ($k in $techFiles.Keys) { $techOn[$k] = $true } }
+    elseif ($tl -eq 'none') { $techOn = @{} }
+    else {
+        $k = @($techFiles.Keys | Where-Object { $_.ToLower() -eq $tl })
+        if ($k.Count -eq 0) { throw "-Tech: unknown technology '$t' (All, None, DLSS, FSR, XeSS)" }
+        $techOn[$k[0]] = $true
+    }
+}
+$techOwner = @{}
+foreach ($k in $techFiles.Keys) { foreach ($n in $techFiles[$k]) { $techOwner[$n.ToLower()] = $k } }
+"Vendor tech: " + $(if ($techOn.Count) { (@($techOn.Keys) | Sort-Object) -join ', ' } else { 'none' })
+
 # Minimal-only exclusions: session/machine artifacts and optional subsystems.
 $minimalSkipDirs  = @('plugins')                 # script runtimes (belong to script modules)
 $minimalSkipFiles = @('imgui.ini')               # editor session layout, per-machine
@@ -69,7 +101,10 @@ foreach ($f in Get-ChildItem $src -Recurse -File) {
     if ($devExt -contains $f.Extension) { continue }   # dev artifacts, not shipped
     if ($f.Name -like '*-gd-*')         { continue }   # defensive: never ship debug-variant deps
 
-    if ($Mode -eq "Minimal") {
+    # Vendor upscaler / frame-generation runtimes: -Tech alone decides, in every mode and folder.
+    $owner = $techOwner[$f.Name.ToLower()]
+    if ($owner) { if (-not $techOn[$owner]) { $skipped++; continue } }
+    elseif ($Mode -eq "Minimal") {
         if ($minimalSkipDirs -contains $top)                { $skipped++; continue }
         if ($parts.Count -eq 1 -and $minimalSkipFiles -contains $f.Name) { $skipped++; continue }
         # config\: keep main.json only — shadercache_vk/mods are machine/session data.
@@ -84,7 +119,8 @@ foreach ($f in Get-ChildItem $src -Recurse -File) {
     Copy-Item $f.FullName $target -Force
     $files++; $bytes += $f.Length
 }
-"Staged $Config ($Mode) -> $dst"
+$techTag = if ($techOn.Count) { (@($techOn.Keys) | Sort-Object) -join '+' } else { 'no vendor tech' }
+"Staged $Config ($Mode, $techTag) -> $dst"
 "  $files files, {0} MB ($skipped excluded)" -f [math]::Round($bytes/1MB,2)
 
 # ---- -Sdk: the C++ game-module kit ------------------------------------------------------

@@ -17,6 +17,11 @@
 #   NukeUtils/stage_release.sh --config Release --mode Minimal
 #   NukeUtils/stage_release.sh --config Release --mode Minimal --sdk
 #   NukeUtils/stage_release.sh --mode Minimal --minimal-modules "NukeRenderDiligent.dylib NukeScript.dylib"
+#   --tech (orthogonal) — the vendor upscaling / frame-generation runtimes to ship: all, none, or a
+#                       comma list of dlss, fsr, xess. Full ships all, Minimal ships none unless given.
+#                       (The vendors ship those runtimes for Windows only; the switch is here for the
+#                       same interface on every platform.)
+#   NukeUtils/stage_release.sh --config Release --tech dlss,fsr
 set -eu
 
 CONFIG="Release"
@@ -26,6 +31,7 @@ OUTNAME=""
 # Native module extension: .dylib on macOS, .so elsewhere (matches the CMake PREFIX "" naming).
 case "$(uname -s)" in Darwin) MODEXT=dylib ;; *) MODEXT=so ;; esac
 MINIMAL_MODULES="NukeRenderDiligent.$MODEXT"
+TECH=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -34,10 +40,35 @@ while [ $# -gt 0 ]; do
 		--sdk)             SDK=1; shift ;;
 		--outname)         OUTNAME="$2"; shift 2 ;;
 		--minimal-modules) MINIMAL_MODULES="$2"; shift 2 ;;
+		--tech)            TECH="$2"; shift 2 ;;
 		*) echo "unknown option: $1" >&2; exit 2 ;;
 	esac
 done
 case "$MODE" in Full|Minimal) ;; *) echo "--mode must be Full or Minimal" >&2; exit 2 ;; esac
+
+# Vendor runtimes by technology (the same set the editor's Package Project dialog toggles).
+if [ -z "$TECH" ]; then
+	if [ "$MODE" = "Full" ]; then TECH="all"; else TECH="none"; fi
+fi
+TECH_ON=""
+for t in $(echo "$TECH" | tr 'A-Z,' 'a-z '); do
+	case "$t" in
+		all)  TECH_ON=" dlss fsr xess " ;;
+		none) TECH_ON="" ;;
+		dlss|fsr|xess) TECH_ON="$TECH_ON $t " ;;
+		*) echo "--tech: unknown technology '$t' (all, none, dlss, fsr, xess)" >&2; exit 2 ;;
+	esac
+done
+# The technology a vendor runtime belongs to ("" = not a vendor runtime).
+tech_of() {
+	case "$1" in
+		nvngx_dlss.dll|sl.interposer.dll|sl.common.dll|sl.dlss_g.dll|sl.reflex.dll|sl.pcl.dll|nvngx_dlssg.dll|NvLowLatencyVk.dll) echo dlss ;;
+		amd_fidelityfx_upscaler_dx12.dll|amd_fidelityfx_framegeneration_dx12.dll|amd_fidelityfx_vk.dll) echo fsr ;;
+		libxess.dll|libxess_fg.dll|libxell.dll) echo xess ;;
+		*) echo "" ;;
+	esac
+}
+echo "Vendor tech:${TECH_ON:- none}"
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # Run-dir subfolder: "macos"/"linux" here (Windows' x64 tree is staged by stage_release.ps1).
@@ -81,7 +112,11 @@ find . -type f | sed 's|^\./||' | while IFS= read -r rel; do
 	case " $PROJECT_DIRS " in *" $top "*) continue ;; esac        # game projects: never shipped
 	is_dev_artifact "$rel" && continue
 
-	if [ "$MODE" = "Minimal" ]; then
+	# Vendor upscaler / frame-generation runtimes: --tech alone decides, in every mode and folder.
+	tech=$(tech_of "$name")
+	if [ -n "$tech" ]; then
+		case "$TECH_ON" in *" $tech "*) ;; *) continue ;; esac
+	elif [ "$MODE" = "Minimal" ]; then
 		[ "$top" = "plugins" ] && continue                        # script runtimes (script modules')
 		[ "$rel" = "imgui.ini" ] && continue                      # editor session layout, per-machine
 		# config/: keep main.json only — shadercache/mods are machine/session data.
