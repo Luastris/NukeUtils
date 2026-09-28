@@ -26,7 +26,7 @@ struct FieldInfo
 {
 	std::string name, asset, label;
 	std::string fmin, fmax;   // empty = absent
-	std::string enumc, tip, widget;
+	std::string enumc, tip, widget, section;   // section: inspector group title opened at this field
 	std::string ctype;        // declared C++ type text (drives --sdk accessors and --doc)
 	bool hidden = false;
 	bool net    = false;      // [[nuke::prop(net)]] — replicated field (NukeNet auto-collects it)
@@ -210,6 +210,7 @@ int main(int argc, char** argv)
 	const std::regex kNet(R"rx(\bnet\b)rx");
 	const std::regex kTip(R"rx(tip\s*=\s*"([^"]*)")rx");
 	const std::regex kWidget(R"rx(widget\s*=\s*"([^"]*)")rx");
+	const std::regex kSection(R"rx(section\s*=\s*"([^"]*)")rx");
 
 	std::vector<std::string> exts = scanCpp ? std::vector<std::string>{ ".h", ".cpp" }
 	                                        : std::vector<std::string>{ ".h" };
@@ -278,6 +279,7 @@ int main(int argc, char** argv)
 			if (std::regex_search(attr, am, kEnum))   fi.enumc  = am[1].str();
 			if (std::regex_search(attr, am, kTip))    fi.tip    = am[1].str();
 			if (std::regex_search(attr, am, kWidget)) fi.widget = am[1].str();
+			if (std::regex_search(attr, am, kSection)) fi.section = am[1].str();
 			fi.hidden = std::regex_search(attr, am, kHidden);
 			fi.net    = std::regex_search(attr, am, kNet);
 			owner->fields.push_back(std::move(fi));
@@ -438,6 +440,8 @@ int main(int argc, char** argv)
 				lines.push_back("\t\tt.fields.back().tip = \"" + escape(fi.tip) + "\";");
 			if (!fi.widget.empty())
 				lines.push_back("\t\tt.fields.back().widget = \"" + fi.widget + "\";");
+			if (!fi.section.empty())
+				lines.push_back("\t\tt.fields.back().section = \"" + escape(fi.section) + "\";");
 		}
 		for (const MethodInfo& mi : t.methods)
 		{
@@ -636,6 +640,7 @@ int main(int argc, char** argv)
 					if (!fi.asset.empty())  add("asset: " + fi.asset);
 					if (fi.hidden)          add("hidden");
 					if (!fi.widget.empty()) add("widget: " + fi.widget);
+					if (!fi.section.empty()) add("section: " + fi.section);
 					if (!fi.tip.empty())    add(fi.tip);
 					o += "| " + fi.name + " | `" + fi.ctype + "` | " + fi.label + " | " + det + " |\n";
 				}
